@@ -1,0 +1,6 @@
+[package]
+name = "bolt-protocol"
+version = "0.1.0"
+authors = ["Mark Stacey <markjstacey@gmail.com>"]
+
+[dependencies]
