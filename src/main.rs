@@ -46,19 +46,16 @@ fn main() {
         )
         .get_matches();
     
-    let url = matches.value_of("url").unwrap_or("bolt://localhost:7687");
+    let server = matches.value_of("server").unwrap_or("localhost:7687");
     let username = matches.value_of("username").unwrap();
     let password = matches.value_of("password").unwrap();
 
     let statement = matches.value_of("statement").unwrap();
 
-    let session = bolt_client::connect(url, username, password);
+    let session = bolt_client::connect(server, username, password);
 
-    if let Some(session) = session {
-        //let result = session.run(statement);
-
-        //println!("{:?}", result);
-    } else {
-        println!("Connection failed")
-    }
+    match session {
+        Ok(session) => println!("Connected to {}", server),
+        Err(error) => println!("Connection failed: {:?}", error),
+    };
 }

@@ -1,6 +1,21 @@
+
 pub mod bolt_client {
-    pub fn connect(server: &str, username: &str, password: &str) -> Option<i32> {
-        None
+    use std::net::TcpStream;
+    use std::io;
+
+    pub struct DatabaseSession {
+        stream: TcpStream,
+    }
+
+    pub fn connect(server: &str, username: &str, password: &str) -> io::Result<DatabaseSession> {
+        let mut stream = TcpStream::connect(server);
+
+        match stream {
+            Ok(stream) => Ok(
+                DatabaseSession { stream: stream }
+            ),
+            Err(error) => Err(error),
+        }
     }
 }
 
