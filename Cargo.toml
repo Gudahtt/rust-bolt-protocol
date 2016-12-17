@@ -5,3 +5,4 @@ authors = ["Mark Stacey <markjstacey@gmail.com>"]
 
 [dependencies]
 clap = "^2.19.2"
+byteorder = "~0.5.3"
