@@ -1,7 +1,7 @@
 extern crate clap;
 extern crate bolt_protocol;
 
-use clap::{Arg, App, SubCommand};
+use clap::{Arg, App};
 use bolt_protocol::client;
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");

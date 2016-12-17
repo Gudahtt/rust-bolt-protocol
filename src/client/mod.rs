@@ -6,8 +6,7 @@ use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
-use std::slice::Chunks;
-use self::byteorder::{BigEndian, ByteOrder, WriteBytesExt};
+use self::byteorder::{BigEndian, ByteOrder};
 
 const BOLT_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 const BOLT_SUPPORTED_VERSIONS: [u32; 1] = [ 1 ];
@@ -26,27 +25,26 @@ impl BoltSession {
 
     fn handshake(mut stream: &TcpStream) -> Result<(), io::Error> {
         // send preamble
-        stream.write(&BOLT_PREAMBLE);
+        try!(stream.write(&BOLT_PREAMBLE));
 
         // send compatible versions
         for &version in BOLT_SUPPORTED_VERSIONS.into_iter() {
             let mut buf = [0x0; 4];
             BigEndian::write_u32(&mut buf, version);
-            stream.write(&buf);
+            try!(stream.write(&buf));
         }
 
         // fill remaining spaces with 'none' version
         for _ in BOLT_SUPPORTED_VERSIONS.len()..4 {
             let mut buf = [0x0; 4];
             BigEndian::write_u32(&mut buf, BOLT_VERSION_NONE);
-            stream.write(&buf);
+            try!(stream.write(&buf));
         }
 
-        let mut responseBuffer = [0x0; 4];
+        let mut response_buffer = [0x0; 4];
+        try!(stream.read_exact(&mut response_buffer));
 
-        let response = try!(stream.read_exact(&mut responseBuffer));
-
-        let version = BigEndian::read_u32(&responseBuffer);
+        let version = BigEndian::read_u32(&response_buffer);
 
         if version == 0 {
             panic!("No supported versions; Exiting.");
@@ -56,8 +54,6 @@ impl BoltSession {
     }
 
     fn send_message(&mut self, message: &[u8]) -> Result<(), io::Error> {
-        let message_size = message.len();
-
         for chunk in message.chunks(std::u16::MAX as usize) {
             let chunk_size = chunk.len() as u16;
             let mut buf = [0x0; 2];
@@ -66,7 +62,7 @@ impl BoltSession {
             try!(self.stream.write(&buf));
             try!(self.stream.write(chunk));
 
-            let mut buf = [0x0; 2];
+            let buf = [0x0; 2];
             try!(self.stream.write(&buf));
         }
 
@@ -95,10 +91,10 @@ impl BoltSession {
 }
 
 pub fn connect(server: &str, username: &str, password: &str) -> io::Result<BoltSession> {
-    let mut stream = try!(TcpStream::connect(server));
-    stream.set_read_timeout(Some(Duration::new(5, 0)));
+    let stream = try!(TcpStream::connect(server));
+    try!(stream.set_read_timeout(Some(Duration::new(5, 0))));
 
-    let mut session = try!(BoltSession::new(stream));
+    let session = try!(BoltSession::new(stream));
 
     Ok(session)
 }
