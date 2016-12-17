@@ -17,6 +17,12 @@ pub struct BoltSession {
 
 impl BoltSession {
     fn new(mut stream: TcpStream) -> Result<BoltSession, io::Error> {
+        try!(BoltSession::handshake(&mut stream));
+
+        Ok(BoltSession { stream: stream })
+    }
+
+    fn handshake(mut stream: &TcpStream) -> Result<(), io::Error> {
         // send preamble
         stream.write(&BOLT_PREAMBLE);
 
@@ -46,7 +52,7 @@ impl BoltSession {
             panic!("No supported versions; Exiting.");
         }
 
-        Ok(BoltSession { stream: stream })
+        Ok(())
     }
 }
 
