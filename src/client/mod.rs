@@ -1,10 +1,12 @@
 extern crate byteorder;
 
+use std;
 use std::net::TcpStream;
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
+use std::slice::Chunks;
 use self::byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 
 const BOLT_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
@@ -42,9 +44,7 @@ impl BoltSession {
 
         let mut responseBuffer = [0x0; 4];
 
-        stream.set_read_timeout(Some(Duration::new(5, 0)));
         let response = try!(stream.read_exact(&mut responseBuffer));
-        stream.set_read_timeout(None);
 
         let version = BigEndian::read_u32(&responseBuffer);
 
@@ -54,15 +54,51 @@ impl BoltSession {
 
         Ok(())
     }
+
+    fn send_message(&mut self, message: &[u8]) -> Result<(), io::Error> {
+        let message_size = message.len();
+
+        for chunk in message.chunks(std::u16::MAX as usize) {
+            let chunk_size = chunk.len() as u16;
+            let mut buf = [0x0; 2];
+            BigEndian::write_u16(&mut buf, chunk_size);
+
+            try!(self.stream.write(&buf));
+            try!(self.stream.write(chunk));
+
+            let mut buf = [0x0; 2];
+            try!(self.stream.write(&buf));
+        }
+
+        Ok(())
+    }
+
+    fn read_message(&mut self) -> Result<Vec<u8>, io::Error> {
+        let mut message: Vec<u8> = Vec::new();
+        let mut message_length = std::u16::MAX;
+
+        while message_length > 0 {
+            // read header
+            let mut buf = [0x0; 2];
+            try!(self.stream.read_exact(&mut buf));
+            message_length = BigEndian::read_u16(&buf);
+
+            // read message
+            let mut buf = Vec::with_capacity(message_length as usize);
+            try!(self.stream.read_exact(&mut buf));
+
+            message.append(&mut buf);
+        }
+
+        Ok(message)
+    }
 }
 
 pub fn connect(server: &str, username: &str, password: &str) -> io::Result<BoltSession> {
-    let mut stream = TcpStream::connect(server);
+    let mut stream = try!(TcpStream::connect(server));
+    stream.set_read_timeout(Some(Duration::new(5, 0)));
 
-    match stream {
-        Ok(stream) => Ok(
-            try!(BoltSession::new(stream))
-        ),
-        Err(error) => Err(error),
-    }
+    let mut session = try!(BoltSession::new(stream));
+
+    Ok(session)
 }
