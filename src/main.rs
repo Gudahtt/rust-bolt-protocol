@@ -2,7 +2,7 @@ extern crate clap;
 extern crate bolt_protocol;
 
 use clap::{Arg, App, SubCommand};
-use bolt_protocol::bolt_client;
+use bolt_protocol::client;
 
 const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -52,7 +52,7 @@ fn main() {
 
     let statement = matches.value_of("statement").unwrap();
 
-    let session = bolt_client::connect(server, username, password);
+    let session = client::connect(server, username, password);
 
     match session {
         Ok(session) => println!("Connected to {}", server),
