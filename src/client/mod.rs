@@ -529,15 +529,14 @@ impl BoltSession {
         while message_length > 0 {
             // read header
             let mut buf = [0x0; 2];
-            try!(self.stream.read_to_end(&mut buf));
+            try!(self.stream.read_exact(&mut buf));
             message_length = BigEndian::read_u16(&buf);
 
-            println!("Message length: {:?}", message_length);
             // read message
-            let mut buf = Vec::with_capacity(message_length as usize);
-            try!(self.stream.read_exact(&mut buf));
+            let mut message_chunk = vec![0x0; message_length as usize];
+            try!(self.stream.read_exact(&mut message_chunk[..]));
 
-            message.append(&mut buf);
+            message.append(&mut message_chunk);
         }
 
         Ok(message)
