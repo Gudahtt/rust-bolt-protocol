@@ -341,7 +341,7 @@ impl StructureKind {
 
     fn get_marker(&self) -> u8 {
         match self.get_size() {
-            s @ 0 ... 15 => 0xB + (s as u8),
+            s @ 0 ... 15 => 0xB0 + (s as u8),
             16 ... 255 => 0xDC,
             _ => 0xDD,
         }
