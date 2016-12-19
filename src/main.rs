@@ -52,10 +52,7 @@ fn main() {
 
     let statement = matches.value_of("statement").unwrap();
 
-    let session = client::connect(server, username, password);
+    let mut session = client::connect(server, username, password).unwrap();
 
-    match session {
-        Ok(session) => println!("Connected to {}", server),
-        Err(error) => println!("Connection failed: {:?}", error),
-    };
+    session.run(String::from(statement)).unwrap();
 }

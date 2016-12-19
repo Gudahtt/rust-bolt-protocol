@@ -572,9 +572,28 @@ impl BoltSession {
 
         Ok(())
     }
+
+    pub fn run(&mut self, statement: String) -> Result<(), io::Error> {
+        let parameters = HashMap::<StringKind, DataKind>::new();
+
+        let run = DataKind::Structure(
+            StructureKind::Message(
+                MessageStructureKind::Run(
+                    StringKind::new(statement).unwrap(),
+                    MapKind::new(parameters).unwrap()
+                )
+            )
+        );
+
+        try!(self.send_message(run.serialize().as_slice()));
+
+        let message = try!(self.read_message());
+
+        Ok(())
+    }
 }
 
-pub fn connect(server: &str, username: &str, password: &str) -> io::Result<BoltSession> {
+pub fn connect(server: &str, username: &str, password: &str) -> Result<BoltSession, io::Error> {
     let stream = try!(TcpStream::connect(server));
     try!(stream.set_read_timeout(Some(Duration::new(5, 0))));
 
