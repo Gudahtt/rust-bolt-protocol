@@ -463,6 +463,32 @@ impl DataStructureKind {
     }
 }
 
+/*enum MessageStructureKind {
+    Init(StringKind, MapKind),
+    Run(StringKind, MapKind),
+    DiscardAll,
+    PullAll,
+    AckFailure,
+    Reset,
+    Record(ListKind),
+    Success(MapKind),
+    Failure(MapKind),
+    Ignored(MapKind),
+}
+
+
+struct InitMessage {
+    message: [u8]
+}
+
+impl InitMessage {
+    fn new(client_name: String, auth_token: HashMap<String, String>) -> InitMessage {
+        let mut v = vec![]
+    }
+} */
+
+
+
 pub struct BoltSession {
     stream: TcpStream,
 }
