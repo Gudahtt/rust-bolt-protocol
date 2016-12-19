@@ -1,5 +1,3 @@
-extern crate byteorder;
-
 use std;
 use std::net::TcpStream;
 use std::io;
@@ -7,7 +5,7 @@ use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
 use std::collections::HashMap;
-use self::byteorder::{BigEndian, ByteOrder};
+use byteorder::{BigEndian, ByteOrder};
 
 const BOLT_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 const BOLT_SUPPORTED_VERSIONS: [u32; 1] = [ 1 ];
