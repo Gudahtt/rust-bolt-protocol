@@ -7,6 +7,8 @@ use std::time::Duration;
 use std::collections::HashMap;
 use byteorder::{BigEndian, ByteOrder};
 
+use ::util::pretty_print_hex;
+
 const BOLT_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 const BOLT_SUPPORTED_VERSIONS: [u32; 1] = [ 1 ];
 const BOLT_VERSION_NONE : u32 = 0;
@@ -499,10 +501,15 @@ impl BoltSession {
             panic!("No supported versions; Exiting.");
         }
 
+        println!("Using version {}", version);
+
         Ok(())
     }
 
     fn send_message(&mut self, message: &[u8]) -> Result<(), io::Error> {
+        let pretty_message = pretty_print_hex(&message).unwrap();
+        println!("Writing message:\n{}", pretty_message);
+
         for chunk in message.chunks(std::u16::MAX as usize) {
             let chunk_size = chunk.len() as u16;
             let mut buf = [0x0; 2];
@@ -522,7 +529,7 @@ impl BoltSession {
         let mut message: Vec<u8> = Vec::new();
         let mut message_length = std::u16::MAX;
 
-        println!("Reading");
+        println!("Reading message");
 
         while message_length > 0 {
             // read header
@@ -536,6 +543,10 @@ impl BoltSession {
 
             message.append(&mut message_chunk);
         }
+
+        println!("size: {}", message.len());
+        let pretty_message = pretty_print_hex(&message.as_slice()).unwrap();
+        println!("{}", pretty_message);
 
         Ok(message)
     }
@@ -558,7 +569,6 @@ impl BoltSession {
         try!(self.send_message(init.serialize().as_slice()));
         
         let message = try!(self.read_message());
-        println!("message: {:?}|", message);
 
         Ok(())
     }
