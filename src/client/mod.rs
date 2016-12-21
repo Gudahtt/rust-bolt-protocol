@@ -6,6 +6,7 @@ use std::io::Write;
 use std::time::Duration;
 use std::collections::HashMap;
 use byteorder::{BigEndian, ByteOrder};
+use num::ToPrimitive;
 
 use ::util::pretty_print_hex;
 
@@ -13,481 +14,420 @@ const BOLT_PREAMBLE: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
 const BOLT_SUPPORTED_VERSIONS: [u32; 1] = [ 1 ];
 const BOLT_VERSION_NONE : u32 = 0;
 
-enum DataKind {
-    Null,
-    Boolean(bool),
-    Integer(IntegerKind),
-    Float(f64),
-    String(StringKind),
-    List(ListKind),
-    Map(MapKind),
-    Structure(StructureKind),
+trait BoltSerialize {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error> ;
 }
 
-impl DataKind {
-    fn serialize(&self) -> Vec<u8> {
-        match *self {
-            DataKind::Null | DataKind::Boolean(..) => vec![self.get_marker()],
-            DataKind::Integer(ref kind) => kind.serialize(),
-            DataKind::Float(value) => {
-                let mut buf = [0x0; 64];
-                BigEndian::write_f64(&mut buf, value);
-                let mut v = vec![self.get_marker()];
-                v.extend_from_slice(&buf);
-                v
-            },
-            DataKind::String(ref kind) => kind.serialize(),
-            DataKind::List(ref kind) => kind.serialize(),
-            DataKind::Map(ref kind) => kind.serialize(),
-            DataKind::Structure(ref kind) => kind.serialize(),
-        }
-    }
-
-    fn get_marker(&self) -> u8 {
-        match *self {
-            DataKind::Null => 0xC0,
-            DataKind::Boolean(value) => {
-                match value {
-                    true => 0xC3,
-                    false => 0xC2,
-                }
-            },
-            DataKind::Integer(ref kind) => kind.get_marker(),
-            DataKind::Float(..) => 0xC1,
-            DataKind::String(ref kind) => kind.get_marker(),
-            DataKind::List(ref kind) => kind.get_marker(),
-            DataKind::Map(ref kind) => kind.get_marker(),
-            DataKind::Structure(ref kind) => kind.get_marker(),
-        }
+impl BoltSerialize for Null {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        Ok(serialize_null())
     }
 }
 
-enum IntegerKind {
-    TinyInt(i8),
-    Int8(i8),
-    Int16(i16),
-    Int32(i32),
-    Int64(i64),
-}
-
-impl IntegerKind {
-    fn serialize(&self) -> Vec<u8> {
-        match *self {
-            IntegerKind::TinyInt(value) => vec![self.get_marker()],
-            IntegerKind::Int8(value) => vec![self.get_marker(), value as u8],
-            IntegerKind::Int16(value) => {
-                let mut buf = [0x0; 2];
-                BigEndian::write_i16(&mut buf, value);
-                let mut v = vec![self.get_marker()];
-                v.extend_from_slice(&buf);
-                v
-            },
-            IntegerKind::Int32(value) => {
-                let mut buf = [0x0; 4];
-                BigEndian::write_i32(&mut buf, value);
-                let mut v = vec![self.get_marker()];
-                v.extend_from_slice(&buf);
-                v
-            },
-            IntegerKind::Int64(value) => {
-                let mut buf = [0x0; 8];
-                BigEndian::write_i64(&mut buf, value);
-                let mut v = vec![self.get_marker()];
-                v.extend_from_slice(&buf);
-                v
-            },
-        }
-    }
-
-    fn get_marker(&self) -> u8 {
-        match *self {
-            IntegerKind::TinyInt(value) => value as u8,
-            IntegerKind::Int8(value) => 0xC8,
-            IntegerKind::Int16(value) => 0xC9,
-            IntegerKind::Int32(value) => 0xCA,
-            IntegerKind::Int64(value) => 0xCB,
-        }
+impl BoltSerialize for bool {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        Ok(serialize_boolean(*self))
     }
 }
 
-#[derive(Debug, Eq, Hash, PartialEq)]
-enum StringKind {
-    TinyString(String),
-    String8(String),
-    String16(String),
-    String32(String),
-}
-
-impl StringKind {
-    fn new(s : String) -> Option<StringKind> {
-        match s.len() {
-            0 ... 15 => Some(StringKind::TinyString(s)),
-            16 ... 255 => Some(StringKind::String8(s)),
-            256 ... 65535 => Some(StringKind::String16(s)),
-            65536 ... 4294967295 => Some(StringKind::String32(s)),
-            _ => None
-        }
-    }
-    fn serialize(&self) -> Vec<u8> {
-        match *self {
-            StringKind::TinyString(ref value) => {
-                let mut v = vec![self.get_marker()];
-                v.extend_from_slice(value.as_bytes());
-                v
-            },
-            StringKind::String8(ref value) => {
-                let mut v = vec![self.get_marker(), value.len() as u8];
-                v.extend_from_slice(value.as_bytes());
-                v
-            },
-            StringKind::String16(ref value) => {
-                let mut v = vec![self.get_marker()];
-                let mut buf = [0x0; 2];
-                BigEndian::write_u16(&mut buf, value.len() as u16);
-                v.extend_from_slice(&buf);
-                v.extend_from_slice(value.as_bytes());
-                v
-            },
-            StringKind::String32(ref value) => {
-                let mut v = vec![self.get_marker()];
-                let mut buf = [0x0; 4];
-                BigEndian::write_u32(&mut buf, value.len() as u32);
-                v.extend_from_slice(&buf);
-                v.extend_from_slice(value.as_bytes());
-                v
-            },
-        }
-    }
-
-    fn get_marker(&self) -> u8 {
-        match *self {
-            StringKind::TinyString(ref value) => 0x80 + (value.len() as u8),
-            StringKind::String8(..) => 0xD0,
-            StringKind::String16(..) => 0xD1,
-            StringKind::String32(..) => 0xD2,
-        }
+impl BoltSerialize for i8 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
 }
 
-enum ListKind {
-    TinyList(Vec<DataKind>),
-    List8(Vec<DataKind>),
-    List16(Vec<DataKind>),
-    List32(Vec<DataKind>),
-}
-
-impl ListKind {
-    fn serialize(&self) -> Vec<u8> {
-        match *self {
-            ListKind::TinyList(ref value) => {
-                let mut v = vec![self.get_marker()];
-
-                for entry in value {
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-            ListKind::List8(ref value) => {
-                let mut v = vec![self.get_marker(), value.len() as u8];
-
-                for entry in value {
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-            ListKind::List16(ref value) => {
-                let mut v = vec![self.get_marker()];
-                let mut buf = [0x0; 2];
-                BigEndian::write_u16(&mut buf, value.len() as u16);
-                v.extend_from_slice(&buf);
-
-                for entry in value {
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-            ListKind::List32(ref value) => {
-                let mut v = vec![self.get_marker()];
-                let mut buf = [0x0; 4];
-                BigEndian::write_u32(&mut buf, value.len() as u32);
-                v.extend_from_slice(&buf);
-
-                for entry in value {
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-        }
-    }
-
-    fn get_marker(&self) -> u8 {
-        match *self {
-            ListKind::TinyList(ref value) => 0x90 + (value.len() as u8),
-            ListKind::List8(..) => 0xD4,
-            ListKind::List16(..) => 0xD5,
-            ListKind::List32(..) => 0xD6,
-        }
+impl BoltSerialize for i16 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
 }
 
-enum MapKind {
-    TinyMap(HashMap<StringKind, DataKind>),
-    Map8(HashMap<StringKind, DataKind>),
-    Map16(HashMap<StringKind, DataKind>),
-    Map32(HashMap<StringKind, DataKind>),
-}
-
-impl MapKind {
-    fn new(map: HashMap<StringKind, DataKind>) -> Option<MapKind> {
-        match map.len() {
-            0 ... 15 => Some(MapKind::TinyMap(map)),
-            16 ... 255 => Some(MapKind::Map8(map)),
-            256 ... 65535 => Some(MapKind::Map16(map)),
-            65536 ... 4294967295 => Some(MapKind::Map32(map)),
-            _ => None
-        }
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        match *self {
-            MapKind::TinyMap(ref value) => {
-                let mut v = vec![self.get_marker()];
-
-                for (key, entry) in value.into_iter() {
-                    v.append(&mut key.serialize());
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-            MapKind::Map8(ref value) => {
-                let mut v = vec![self.get_marker(), value.len() as u8];
-
-                for (key, entry) in value.into_iter() {
-                    v.append(&mut key.serialize());
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-            MapKind::Map16(ref value) => {
-                let mut v = vec![self.get_marker()];
-                let mut buf = [0x0; 2];
-                BigEndian::write_u16(&mut buf, value.len() as u16);
-                v.extend_from_slice(&buf);
-
-                for (key, entry) in value.into_iter() {
-                    v.append(&mut key.serialize());
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-            MapKind::Map32(ref value) => {
-                let mut v = vec![self.get_marker()];
-                let mut buf = [0x0; 4];
-                BigEndian::write_u32(&mut buf, value.len() as u32);
-                v.extend_from_slice(&buf);
-
-                for (key, entry) in value.into_iter() {
-                    v.append(&mut key.serialize());
-                    v.append(&mut entry.serialize());
-                }
-                v
-            },
-        }
-    }
-
-    fn get_marker(&self) -> u8 {
-        match *self {
-            MapKind::TinyMap(ref value) => 0xA0 + (value.len() as u8),
-            MapKind::Map8(..) => 0xD8,
-            MapKind::Map16(..) => 0xD9,
-            MapKind::Map32(..) => 0xDA,
-        }
+impl BoltSerialize for i32 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
 }
 
-enum StructureKind {
-    Message(MessageStructureKind),
-    Data(DataStructureKind),
-}
-
-impl StructureKind {
-    fn serialize(&self) -> Vec<u8> {
-        match *self {
-            StructureKind::Message(ref kind) => {
-                let mut v = self.get_header();
-                v.append(&mut kind.serialize_contents());
-                v
-            },
-            StructureKind::Data(ref kind) => {
-                let mut v = self.get_header();
-                v.append(&mut kind.serialize_contents());
-                v
-            },
-        }
-    }
-    fn get_signature(&self) -> u8 {
-        match *self {
-            StructureKind::Message(ref kind) => kind.get_signature(),
-            StructureKind::Data(ref kind) => kind.get_signature(),
-        }
-    }
-
-    fn get_size(&self) -> u16 {
-        match *self {
-            StructureKind::Message(ref kind) => kind.get_size(),
-            StructureKind::Data(ref kind) => kind.get_size(),
-        }
-    }
-
-    fn get_marker(&self) -> u8 {
-        match self.get_size() {
-            s @ 0 ... 15 => 0xB0 + (s as u8),
-            16 ... 255 => 0xDC,
-            _ => 0xDD,
-        }
-    }
-
-    fn get_header(&self) -> Vec<u8> {
-        let signature = self.get_signature();
-        let size = self.get_size();
-
-        let marker = self.get_marker();
-
-        match marker {
-            0xDD => {
-                let mut buf = [0x0; 2];
-                BigEndian::write_u16(&mut buf, size as u16);
-                vec![marker, buf[0], buf[1], signature]
-            },
-            0xDC => vec![marker, size as u8, signature],
-            _ => vec![marker, signature]
-        }
+impl BoltSerialize for i64 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
 }
 
-enum MessageStructureKind {
-    Init(StringKind, MapKind),
-    Run(StringKind, MapKind),
-    DiscardAll,
-    PullAll,
-    AckFailure,
-    Reset,
-    Record(ListKind),
-    Success(MapKind),
-    Failure(MapKind),
-    Ignored(MapKind),
-}
-
-impl MessageStructureKind {
-    fn serialize_contents(&self) -> Vec<u8> {
-        match *self {
-            MessageStructureKind::Init(ref string, ref map) | MessageStructureKind::Run(ref string, ref map) => {
-                let mut v = string.serialize();
-                v.append(&mut map.serialize());
-                v
-            },
-            MessageStructureKind::DiscardAll |
-            MessageStructureKind::PullAll |
-            MessageStructureKind::AckFailure |
-            MessageStructureKind::Reset => Vec::new(),
-            MessageStructureKind::Record(ref list) => list.serialize(),
-            MessageStructureKind::Success(ref map) |
-            MessageStructureKind::Failure(ref map) |
-            MessageStructureKind::Ignored(ref map) => map.serialize(),
-        }
-    }
-
-    fn get_signature(&self) -> u8 {
-        match *self {
-            MessageStructureKind::Init(..) => 0x1,
-            MessageStructureKind::Run(..) => 0x10,
-            MessageStructureKind::DiscardAll => 0x2F,
-            MessageStructureKind::PullAll => 0x3F,
-            MessageStructureKind::AckFailure => 0x0E,
-            MessageStructureKind::Reset => 0x0F,
-            MessageStructureKind::Record(..) => 0x71,
-            MessageStructureKind::Success(..) => 0x70,
-            MessageStructureKind::Failure(..) => 0x7F,
-            MessageStructureKind::Ignored(..) => 0x7E,
-        }
-    }
-
-    fn get_size(&self) -> u16 {
-        match *self {
-            MessageStructureKind::Init(..) => 2,
-            MessageStructureKind::Run(..) => 2,
-            MessageStructureKind::DiscardAll => 0,
-            MessageStructureKind::PullAll => 0,
-            MessageStructureKind::AckFailure => 0,
-            MessageStructureKind::Reset => 0,
-            MessageStructureKind::Record(..) => 1,
-            MessageStructureKind::Success(..) => 1,
-            MessageStructureKind::Failure(..) => 1,
-            MessageStructureKind::Ignored(..) => 1,
-        }
+impl BoltSerialize for u8 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
 }
 
-enum DataStructureKind {
-    Node,
-    Relationship,
-    Path,
-    UnboundRelationship,
-    NonStandard { signature: u8, size: u16 },
-}
-
-impl DataStructureKind {
-    fn serialize_contents(&self) -> Vec<u8> {
-        vec![0x0]
-        //TODO
-    }
-
-    fn get_signature(&self) -> u8 {
-        match *self {
-            DataStructureKind::Node => 0x4E,
-            DataStructureKind::Relationship => 0x52,
-            DataStructureKind::Path => 0x50,
-            DataStructureKind::UnboundRelationship => 0x72,
-            DataStructureKind::NonStandard {signature: signature, .. } => signature,
-        }
-    }
-
-    fn get_size(&self) -> u16 {
-        match *self {
-            DataStructureKind::Node => 3,
-            DataStructureKind::Relationship => 5,
-            DataStructureKind::Path => 3,
-            DataStructureKind::UnboundRelationship => 3,
-            DataStructureKind::NonStandard { size: size, .. } => size,
-        }
+impl BoltSerialize for u16 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
 }
 
-/*enum MessageStructureKind {
-    Init(StringKind, MapKind),
-    Run(StringKind, MapKind),
-    DiscardAll,
-    PullAll,
-    AckFailure,
-    Reset,
-    Record(ListKind),
-    Success(MapKind),
-    Failure(MapKind),
-    Ignored(MapKind),
-}
-
-
-struct InitMessage {
-    message: [u8]
-}
-
-impl InitMessage {
-    fn new(client_name: String, auth_token: HashMap<String, String>) -> InitMessage {
-        let mut v = vec![]
+impl BoltSerialize for u32 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
     }
-} */
+}
 
+impl BoltSerialize for u64 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_integer(*self)
+    }
+}
 
+impl BoltSerialize for f64 {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        Ok(serialize_float(*self))
+    }
+}
+
+impl<'a> BoltSerialize for &'a str {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_string(&self)
+    }
+}
+
+impl<T: BoltSerialize> BoltSerialize for Vec<T> {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_list(&self)
+    }
+}
+
+impl<'a, T: BoltSerialize> BoltSerialize for HashMap<&'a str, T> {
+    fn serialize(&self) -> Result<Vec<u8>, io::Error>  {
+        serialize_map(&self)
+    }
+}
+
+struct Null;
+
+struct Node<T: BoltSerialize, Y: BoltSerialize> {
+    node_identity: u64,
+    labels: Vec<T>,
+    properties: HashMap<String, Y>,
+}
+
+struct Relationship<T: BoltSerialize> {
+    rel_identity: u64,
+    start_node_identity: u64,
+    end_node_identity: u64,
+    rel_type: String,
+    properties: HashMap<String, T>
+}
+
+struct Path<T: BoltSerialize, Y: BoltSerialize, Z: BoltSerialize> {
+    nodes: Vec<Node<T, Y>>,
+    relationships: Vec<UnboundRelationship<Z>>,
+    sequence: Vec<u64>,
+}
+
+struct UnboundRelationship<T: BoltSerialize> {
+    rel_identity: u64,
+    rel_type: String,
+    properties: HashMap<String, T>,
+}
+
+fn serialize_null() -> Vec<u8> {
+    vec![0xC0]
+}
+
+fn serialize_boolean(value: bool) -> Vec<u8> {
+    if value { vec![0xC3] } else { vec![0xC2] }
+}
+
+fn serialize_integer<T: ToPrimitive>(value: T) -> Result<Vec<u8>, io::Error> {
+    match value.to_i64().unwrap() {
+        value_i64 @ -9223372036854775808 ... -2147483649 | value_i64 @ 2147483648 ... 9223372036854775807 => {
+            let mut buf = [0x0; 8];
+            BigEndian::write_i64(&mut buf, value_i64);
+            let mut v = vec![0xCB];
+            v.extend_from_slice(&buf);
+            Ok(v)
+        },
+        -2147483648 ... -32769 | 32768 ... 2147483647 => {
+            let mut buf = [0x0; 4];
+            BigEndian::write_i32(&mut buf, value.to_i32().unwrap());
+            let mut v = vec![0xCA];
+            v.extend_from_slice(&buf);
+            Ok(v)
+        },
+        -32768 ... -129 | 128 ... 32767 => {
+            let mut buf = [0x0; 2];
+            BigEndian::write_i16(&mut buf, value.to_i16().unwrap());
+            let mut v = vec![0xC9];
+            v.extend_from_slice(&buf);
+            Ok(v)
+        },
+        -128 ... -17 => Ok(vec![0xC8, value.to_i8().unwrap() as u8]),
+        -16 ... 127 => Ok(vec![value.to_i8().unwrap() as u8]),
+        _ => Err(io::Error::new(io::ErrorKind::Other, "Integer too large")),
+    }
+}
+
+fn serialize_float(value: f64) -> Vec<u8> {
+    let mut buf = [0x0; 8];
+    BigEndian::write_f64(&mut buf, value);
+    let mut v = vec![0xC1];
+    v.extend_from_slice(&buf);
+    v
+}
+
+fn serialize_string(s: &str) -> Result<Vec<u8>, io::Error> {
+    let mut message = match s.len() {
+        len @ 0 ... 15 => vec![0x80 + (len as u8)],
+        len @ 16 ... 255 => vec![0xD0, len as u8],
+        len @ 256 ... 65535 => {
+            let mut buf = [0x0; 2];
+            BigEndian::write_u16(&mut buf, len as u16);
+            let mut v = vec![0xD1];
+            v.extend_from_slice(&buf);
+            v
+        },
+        len @ 65536 ... 4294967295 => {
+            let mut buf = [0x0; 4];
+            BigEndian::write_u32(&mut buf, len as u32);
+            let mut v = vec![0xD2];
+            v.extend_from_slice(&buf);
+            v
+        },
+        _ => return Err(io::Error::new(io::ErrorKind::Other, "String too large")),
+    };
+
+    message.extend_from_slice(s.as_bytes());
+    Ok(message)
+}
+
+fn serialize_list<T: BoltSerialize>(list: &Vec<T>) -> Result<Vec<u8>, io::Error> {
+    let mut message = match list.len() {
+        len @ 0 ... 15 => vec![0x90 + (len as u8)],
+        len @ 16 ... 255 => vec![0xD4, len as u8],
+        len @ 256 ... 65535 => {
+            let mut v = vec![0xD5];
+            let mut buf = [0x0; 2];
+            BigEndian::write_u16(&mut buf, len as u16);
+            v.extend_from_slice(&buf);
+            v
+        },
+        len @ 65536 ... 4294967295 => {
+            let mut v = vec![0xD6];
+            let mut buf = [0x0; 4];
+            BigEndian::write_u32(&mut buf, len as u32);
+            v.extend_from_slice(&buf);
+            v
+        },
+        _ => return Err(io::Error::new(io::ErrorKind::Other, "List too large")),
+    };
+
+    for entry in list {
+        message.append(&mut try!(entry.serialize()));
+    }
+    Ok(message)
+}
+
+fn serialize_map<T: BoltSerialize>(map: &HashMap<&str, T>) -> Result<Vec<u8>, io::Error> {
+    let mut message = match map.len() {
+        len @ 0 ... 15 => vec![0xA0 + (len as u8)],
+        len @ 16 ... 255 => vec![0xD8, len as u8],
+        len @ 256 ... 65535 => {
+            let mut v = vec![0xD9];
+            let mut buf = [0x0; 2];
+            BigEndian::write_u16(&mut buf, len as u16);
+            v.extend_from_slice(&buf);
+            v
+        },
+        len @ 65536 ... 4294967295 => {
+            let mut v = vec![0xDA];
+            let mut buf = [0x0; 4];
+            BigEndian::write_u32(&mut buf, len as u32);
+            v.extend_from_slice(&buf);
+            v
+        },
+        _ => return Err(io::Error::new(io::ErrorKind::Other, "Map too large")),
+    };
+
+    for (key, entry) in map.iter() {
+        message.append(&mut try!(serialize_string(key)));
+        message.append(&mut try!(entry.serialize()));
+    }
+
+    Ok(message)
+}
+
+fn get_struct_header(size: i32) -> Result<Vec<u8>, io::Error> {
+    match size {
+        s @ 0 ... 15 => Ok(vec![0xB0 + (s as u8)]),
+        16 ... 255 => Ok(vec![0xDC, size as u8]),
+        256 ... 65535 => {
+            let mut buf = [0x0; 2];
+            BigEndian::write_u16(&mut buf, size as u16);
+            let mut v = vec![0xDD];
+            v.extend_from_slice(&buf);
+            Ok(v)
+        },
+        _ => Err(io::Error::new(io::ErrorKind::Other, "Struct too large")),
+    }
+}
+
+fn serialize_node(node_identity: u64, labels: &Vec<&str>, properties: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x4E;
+    let size = 3;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_integer(node_identity)));
+    message.append(&mut try!(serialize_list(labels)));
+    message.append(&mut try!(serialize_map(properties)));
+
+    Ok(message)
+}
+
+fn serialize_relationship(rel_identity: u64, start_node_identity: u64, end_node_identity: u64, rel_type: &str, properties: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x52;
+    let size = 5;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_integer(rel_identity)));
+    message.append(&mut try!(serialize_integer(start_node_identity)));
+    message.append(&mut try!(serialize_integer(end_node_identity)));
+    message.append(&mut try!(serialize_string(rel_type)));
+    message.append(&mut try!(serialize_map(properties)));
+
+    Ok(message)
+}
+
+fn serialize_path(nodes: &Vec<&str>, relationships: &Vec<&str>, sequence: &Vec<i32>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x50;
+    let size = 3;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_list(nodes)));
+    message.append(&mut try!(serialize_list(relationships)));
+    message.append(&mut try!(serialize_list(sequence)));
+
+    Ok(message)
+}
+
+fn serialize_unbound_relationship(rel_identity: u64, rel_type: &str, properties: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x72;
+    let size = 5;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_integer(rel_identity)));
+    message.append(&mut try!(serialize_string(rel_type)));
+    message.append(&mut try!(serialize_map(properties)));
+
+    Ok(message)
+}
+
+fn serialize_init_message(client_name: &str, auth_token: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x1;
+    let size = 2;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_string(client_name)));
+    message.append(&mut try!(serialize_map(auth_token)));
+
+    Ok(message)
+}
+
+fn serialize_run_message(statement: &str, parameters: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x10;
+    let size = 2;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_string(statement)));
+    message.append(&mut try!(serialize_map(parameters)));
+
+    Ok(message)
+}
+
+fn serialize_discard_all_message() -> Result<Vec<u8>, io::Error> {
+    let signature = 0x2F;
+    let size = 0;
+    let mut message = try!(get_struct_header(size));
+    message.push(signature);
+    
+    Ok(message)
+}
+
+fn serialize_pull_all_message() -> Result<Vec<u8>, io::Error> {
+    let signature = 0x3F;
+    let size = 0;
+    let mut message = try!(get_struct_header(size));
+    message.push(signature);
+    
+    Ok(message)
+}
+
+fn serialize_ack_failure_message() -> Result<Vec<u8>, io::Error> {
+    let signature = 0x0E;
+    let size = 0;
+    let mut message = try!(get_struct_header(size));
+    message.push(signature);
+    
+    Ok(message)
+}
+
+fn serialize_reset_message() -> Result<Vec<u8>, io::Error> {
+    let signature = 0x0F;
+    let size = 0;
+    let mut message = try!(get_struct_header(size));
+    message.push(signature);
+    
+    Ok(message)
+}
+
+fn serialize_record_message(fields: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x71;
+    let size = 1;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_map(fields)));
+
+    Ok(message)
+}
+
+fn serialize_success_message(metadata: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x70;
+    let size = 1;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_map(metadata)));
+
+    Ok(message)
+}
+
+fn serialize_failure_message(metadata: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x7F;
+    let size = 1;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_map(metadata)));
+
+    Ok(message)
+}
+
+fn serialize_ignored_message(metadata: &HashMap<&str, &str>) -> Result<Vec<u8>, io::Error> {
+    let signature = 0x7E;
+    let size = 1;
+    let mut message = try!(get_struct_header(size));
+
+    message.push(signature);
+    message.append(&mut try!(serialize_map(metadata)));
+
+    Ok(message)
+}
 
 pub struct BoltSession {
     stream: TcpStream,
@@ -581,20 +521,13 @@ impl BoltSession {
 
     fn init(&mut self) -> Result<(), io::Error> {
         let mut map = HashMap::new();
-        map.insert(StringKind::new(String::from("scheme")).unwrap(), DataKind::String(StringKind::new(String::from("basic")).unwrap()));
-        map.insert(StringKind::new(String::from("principal")).unwrap(), DataKind::String(StringKind::new(String::from("neo4j")).unwrap()));
-        map.insert(StringKind::new(String::from("credentials")).unwrap(), DataKind::String(StringKind::new(String::from("neo4j")).unwrap()));
+        map.insert("scheme", "basic");
+        map.insert("principal", "neo4j");
+        map.insert("credentials", "password");
 
-        let init = DataKind::Structure(
-            StructureKind::Message(
-                MessageStructureKind::Init(
-                    StringKind::new(String::from("bolt-protocol/0.1")).unwrap(),
-                    MapKind::new(map).unwrap()
-                )
-            )
-        );
+        let init_message = try!(serialize_init_message("MyClient/1.0", &map));
 
-        try!(self.send_message(init.serialize().as_slice()));
+        try!(self.send_message(&init_message[..]));
         
         let message = try!(self.read_message());
 
@@ -602,18 +535,11 @@ impl BoltSession {
     }
 
     pub fn run(&mut self, statement: String) -> Result<(), io::Error> {
-        let parameters = HashMap::<StringKind, DataKind>::new();
+        let parameters = HashMap::<&str, &str>::new();
 
-        let run = DataKind::Structure(
-            StructureKind::Message(
-                MessageStructureKind::Run(
-                    StringKind::new(statement).unwrap(),
-                    MapKind::new(parameters).unwrap()
-                )
-            )
-        );
+        let run_message = try!(serialize_run_message(&statement, &parameters));
 
-        try!(self.send_message(run.serialize().as_slice()));
+        try!(self.send_message(&run_message[..]));
 
         let message = try!(self.read_message());
 

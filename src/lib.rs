@@ -1,4 +1,5 @@
 extern crate byteorder;
+extern crate num;
 
 pub mod client;
 
